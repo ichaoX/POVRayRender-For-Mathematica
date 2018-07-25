@@ -8,7 +8,7 @@
 (* :Author: xslittlegrass *)
 (* :Date: 2016-08-29 *)
 
-(* :Package Version: 0.1 *)
+(* :Package Version: 0.2 *)
 (* :Mathematica Version: *)
 (* :Copyright: (c) 2016 xslittlegrass *)
 (* :Keywords: *)
@@ -88,8 +88,14 @@ global_settings {
 
 
 light_source { <50,-50,50> 1 }
-background { rgb <0,.25,.5> }
+
 ";
+
+
+getBackgroundColor[p_Graphics3D]:=Module[{bg=Background/.AbsoluteOptions[p,Background]},
+If[bg=!=None,StringTemplate["background { rgb <`1`,`2`,`3`> }"]@@ColorConvert[bg,"RGB"],
+""]];
+
 
 generatePovrayString[p_Graphics3D]:=Module[{povStr,replaceStr1,replaceStr2,replaceStr3},
 
@@ -99,7 +105,7 @@ generatePovrayString[p_Graphics3D]:=Module[{povStr,replaceStr1,replaceStr2,repla
 
   If[ByteCount[p]<200||p[[1]]==={},(*if the graphics is empty*)
     povStr=globalStr;,
-    povStr=StringJoin[globalStr,StringReplace[StringDrop[#,Last@Flatten@StringPosition[#,"/*ViewPoint*/"]]&@ExportString[p,"pov"],{replaceStr1->"",replaceStr2->"",replaceStr3->""}]]];
+    povStr=StringJoin[globalStr,getBackgroundColor[p],StringReplace[StringDrop[#,Last@Flatten@StringPosition[#,"/*ViewPoint*/"]]&@ExportString[p,"pov"],{replaceStr1->"",replaceStr2->"",replaceStr3->""}]]];
   povStr
 ];
 (* export povray file to string from Graphics3D object *)
@@ -112,7 +118,7 @@ graphicsComplexToMesh2[gc_]:=Module[{scform,NoVertex,vertex,vertexNormals,NoFace
   scform[x_]:=ScientificForm[x,8,NumberFormat->(Row[If[#3=="",{#1},{#1,"e",#3}]]&)];
   vertex=gc[[1]];
   vertexNormals=First@Cases[gc,Rule[VertexNormals,x__]:>x,\[Infinity]];
-  faceIndex=First@Cases[gc,GraphicsGroup[{Polygon[x__],___}]|GraphicsGroup[Annotation[{Polygon[x__], ___}, ___]]:>x,\[Infinity]]-1;
+  faceIndex=Join@@Cases[gc/.Annotation->(#&),GraphicsGroup[{Polygon[x__],___}]:>x,\[Infinity]]-1;
   (*The pattern with Annotation is for the bug introduced in Mathematica version 11.01*)
   NoVertex=ToString@Length[vertex];
   NoFaces=ToString@Length[faceIndex];
@@ -178,7 +184,7 @@ generatePovrayStringUsingMesh[p_Graphics3D]:=Module[{gc,camera},
   gc=First@Cases[p,_GraphicsComplex];
   camera=First@StringCases[ExportString[p/.GraphicsComplex[___]:>GraphicsComplex[{{0,0,0}},{Sphere[1]}],"POV"],"camera {"~~Shortest[x__]~~"}"];
   (*This gets only the camera information. We dump the content of the 3d Graphics so that the export can be much faster.*)
-  povStr=StringJoin[globalStr,camera,graphicsComplexToMesh2[gc]];
+  povStr=StringJoin[globalStr,getBackgroundColor[p],camera,graphicsComplexToMesh2[gc]];
   povStr
 ];
 
@@ -192,7 +198,7 @@ povrayExec[inputPath_,outputPath_,povpath_,povrayOptions_]:=Module[{renderCmd},
 
 (* put together the subroutines *)
 
-Options[POVRayRender]={"Method"->"Mesh","OutputPath"->None,"ImageSize"->{800,600},"RenderOptions"->"+A0.001 -J"};
+Options[POVRayRender]={"Method"->"Automatic","OutputPath"->None,"ImageSize"->{800,600},"RenderOptions"->"+A0.001 -J"};
 
 Block[{$POVRayPath},
 POVRayRender[p_Graphics3D,povpath_String:$POVRayPath,OptionsPattern[]]:=Module[{imageWidth,imageHeight,tracingOptions,inputPath,outputPath,povrayOptions,tempFileStream,povraySceneStr,temp},
@@ -204,9 +210,10 @@ POVRayRender[p_Graphics3D,povpath_String:$POVRayPath,OptionsPattern[]]:=Module[{
 
 (*	temp=AbsoluteTime[];*)
 
-  povraySceneStr=If[OptionValue["Method"]=="Mesh",
-    generatePovrayStringUsingMesh[p],
-    generatePovrayString[p]];
+  povraySceneStr=Switch[OptionValue["Method"],
+  "Automatic",If[Length[Cases[p,_GraphicsComplex]]>0,generatePovrayStringUsingMesh,generatePovrayString],
+  "Mesh",generatePovrayStringUsingMesh,
+  _,generatePovrayString][p];
 
 (*	Print["parse Graphics3D"];
 	Print[AbsoluteTime[]-temp];
